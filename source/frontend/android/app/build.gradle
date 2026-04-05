@@ -48,6 +48,7 @@ android {
 
     buildTypes {
         debug {
+            firebaseCrashlyticsNdkEnabled false
         }
         release {
             signingConfig signingConfigs.release
