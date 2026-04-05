@@ -48,7 +48,7 @@ dependencies:
   gap: ^3.0.1
 
   # Share
-  share_plus: ^9.0.0
+  share_plus: ^10.0.1
   url_launcher: ^6.3.2
 
   # Utils
