@@ -121,7 +121,6 @@ jobs:
         working-directory: source/frontend
         run: |
           echo "sdk.dir=$ANDROID_SDK_ROOT" >> android/local.properties
-          echo "ndk.dir=$ANDROID_SDK_ROOT/ndk/28.2.13676358" >> android/local.properties
           echo "flutter.sdk=$(dirname $(dirname $(which flutter)))" >> android/local.properties
 
       - name: Generate mipmap icons (if missing)
