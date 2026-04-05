@@ -91,12 +91,9 @@ jobs:
       - name: Write local.properties
         working-directory: source/frontend
         run: |
-          printf 'sdk.dir=%s
-' "$ANDROID_SDK_ROOT" >> android/local.properties
-          printf 'ndk.dir=%s/ndk/28.2.13676358
-' "$ANDROID_SDK_ROOT" >> android/local.properties
-          printf 'flutter.sdk=%s
-' "$(dirname $(dirname $(which flutter)))" >> android/local.properties
+          echo "sdk.dir=$ANDROID_SDK_ROOT" >> android/local.properties
+          echo "ndk.dir=$ANDROID_SDK_ROOT/ndk/28.2.13676358" >> android/local.properties
+          echo "flutter.sdk=$(dirname $(dirname $(which flutter)))" >> android/local.properties
 
       - name: Install dependencies
         working-directory: source/frontend
