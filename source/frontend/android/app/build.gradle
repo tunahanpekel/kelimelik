@@ -63,6 +63,9 @@ flutter {
     source "../.."
 }
 
+// AGP 8.9+ requires explicit build directory redirect for flutter findBundleFile
+layout.buildDirectory.set(new File(projectDir, "../../build/app").canonicalFile)
+
 dependencies {
     coreLibraryDesugaring "com.android.tools:desugar_jdk_libs:2.1.4"
 }
