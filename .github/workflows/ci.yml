@@ -65,7 +65,26 @@ jobs:
 
       - name: Run tests
         working-directory: source/frontend
-        run: flutter test --no-pub --reporter=compact --coverage --test-randomize-ordering-seed random
+        run: |
+          flutter test --coverage \
+            --dart-define=APP_ENV=dev \
+            --dart-define=ADMOB_APP_ID_ANDROID=ca-app-pub-3940256099942544~3347511713 \
+            --dart-define=ADMOB_APP_ID_IOS=ca-app-pub-3940256099942544~1458002511 \
+            --dart-define=BANNER_AD_UNIT_ANDROID=ca-app-pub-3940256099942544/6300978111 \
+            --dart-define=BANNER_AD_UNIT_IOS=ca-app-pub-3940256099942544/2934735716 \
+            --dart-define=INTERSTITIAL_AD_UNIT_ANDROID=ca-app-pub-3940256099942544/1033173712 \
+            --dart-define=INTERSTITIAL_AD_UNIT_IOS=ca-app-pub-3940256099942544/4411468910 \
+            --dart-define=SUPABASE_URL=https://mock.supabase.co \
+            --dart-define=SUPABASE_ANON_KEY=mock_key
+
+      - name: Upload coverage
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
+        if: always()
+        with:
+          name: coverage-${{ github.event.pull_request.number || github.run_id }}
+          path: source/frontend/coverage/lcov.info
+          retention-days: 7
+          if-no-files-found: warn
 
   build-check:
     name: Android Debug Build
@@ -88,12 +107,48 @@ jobs:
           distribution: temurin
           java-version: '17'
 
+      - name: Restore Gradle Cache
+        uses: actions/cache/restore@d4323d4df104b026a6aa633fdb11d772146be0bf  # v4.2.2
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: gradle-${{ runner.os }}-${{ hashFiles('source/frontend/android/gradle/wrapper/gradle-wrapper.properties') }}
+          restore-keys: |
+            gradle-${{ runner.os }}-
+
       - name: Write local.properties
         working-directory: source/frontend
         run: |
           echo "sdk.dir=$ANDROID_SDK_ROOT" >> android/local.properties
           echo "ndk.dir=$ANDROID_SDK_ROOT/ndk/28.2.13676358" >> android/local.properties
           echo "flutter.sdk=$(dirname $(dirname $(which flutter)))" >> android/local.properties
+
+      - name: Generate mipmap icons (if missing)
+        working-directory: source/frontend
+        run: |
+          python3 << 'PYEOF'
+          import os, zlib, struct
+          def make_png(w, h, r, g, b):
+              def chunk(tag, data):
+                  c = zlib.crc32(tag + data) & 0xFFFFFFFF
+                  return struct.pack(">I", len(data)) + tag + data + struct.pack(">I", c)
+              ihdr = struct.pack(">IIBBBBB", w, h, 8, 2, 0, 0, 0)
+              raw = b""
+              for _ in range(h):
+                  raw += b"\x00" + bytes([r, g, b] * w)
+              idat = zlib.compress(raw, 9)
+              return b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", ihdr) + chunk(b"IDAT", idat) + chunk(b"IEND", b"")
+          densities = {"mipmap-mdpi": 48, "mipmap-hdpi": 72, "mipmap-xhdpi": 96, "mipmap-xxhdpi": 144, "mipmap-xxxhdpi": 192}
+          for density, size in densities.items():
+              folder = "android/app/src/main/res/" + density
+              os.makedirs(folder, exist_ok=True)
+              for fname in ("ic_launcher.png", "ic_launcher_round.png"):
+                  path = os.path.join(folder, fname)
+                  if not os.path.exists(path):
+                      open(path, "wb").write(make_png(size, size, 0x7C, 0x4D, 0xFF))
+                      print("created " + path)
+          PYEOF
 
       - name: Install dependencies
         working-directory: source/frontend
@@ -108,5 +163,19 @@ jobs:
         run: |
           flutter build apk --debug \
             --dart-define=APP_ENV=dev \
+            --dart-define=ADMOB_APP_ID_ANDROID=ca-app-pub-3940256099942544~3347511713 \
+            --dart-define=ADMOB_APP_ID_IOS=ca-app-pub-3940256099942544~1458002511 \
+            --dart-define=BANNER_AD_UNIT_ANDROID=ca-app-pub-3940256099942544/6300978111 \
+            --dart-define=BANNER_AD_UNIT_IOS=ca-app-pub-3940256099942544/2934735716 \
+            --dart-define=INTERSTITIAL_AD_UNIT_ANDROID=ca-app-pub-3940256099942544/1033173712 \
+            --dart-define=INTERSTITIAL_AD_UNIT_IOS=ca-app-pub-3940256099942544/4411468910 \
             --dart-define=SUPABASE_URL=https://mock.supabase.co \
             --dart-define=SUPABASE_ANON_KEY=mock_key
+
+      - name: Save Gradle Cache
+        uses: actions/cache/save@d4323d4df104b026a6aa633fdb11d772146be0bf  # v4.2.2
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: gradle-${{ runner.os }}-${{ hashFiles('source/frontend/android/gradle/wrapper/gradle-wrapper.properties') }}
