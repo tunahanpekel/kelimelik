@@ -117,6 +117,13 @@ jobs:
           restore-keys: |
             gradle-${{ runner.os }}-
 
+      - name: Install Android NDK
+        run: |
+          NDK_VERSION=$(grep -r "ndkVersion" $FLUTTER_ROOT/packages/flutter_tools/gradle/ 2>/dev/null | grep -oP '"[\d.]+"' | head -1 | tr -d '"' || echo "27.0.12077973")
+          echo "Installing NDK: $NDK_VERSION"
+          echo "y" | $ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager "ndk;$NDK_VERSION" || \
+          echo "y" | $ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager "ndk;27.0.12077973" || true
+
       - name: Write local.properties
         working-directory: source/frontend
         run: |
@@ -156,12 +163,6 @@ jobs:
       - name: Generate code
         working-directory: source/frontend
         run: dart run build_runner build --delete-conflicting-outputs
-
-      - name: Build debug APK (Gradle verbose)
-        working-directory: source/frontend/android
-        run: |
-          ./gradlew assembleDebug --stacktrace 2>&1 | tail -100
-        continue-on-error: true
 
       - name: Build debug APK
         working-directory: source/frontend
