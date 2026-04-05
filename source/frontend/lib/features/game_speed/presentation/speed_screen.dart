@@ -233,7 +233,7 @@ class _SpeedScreenState extends ConsumerState<SpeedScreen> {
                 focusNode: _focusNode,
                 textCapitalization: TextCapitalization.characters,
                 enabled: _phase == SpeedPhase.playing,
-                onFieldSubmitted: _onSubmitWord,
+                onSubmitted: _onSubmitWord,
                 decoration: InputDecoration(
                   hintText: '...',
                   suffixIcon: IconButton(
