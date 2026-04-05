@@ -157,6 +157,12 @@ jobs:
         working-directory: source/frontend
         run: dart run build_runner build --delete-conflicting-outputs
 
+      - name: Build debug APK (Gradle verbose)
+        working-directory: source/frontend/android
+        run: |
+          ./gradlew assembleDebug --stacktrace 2>&1 | tail -100
+        continue-on-error: true
+
       - name: Build debug APK
         working-directory: source/frontend
         run: |
