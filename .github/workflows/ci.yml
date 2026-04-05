@@ -1,0 +1,223 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: pr-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  analyze:
+    name: Flutter Analyze
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2  # v2.23.0
+        with:
+          flutter-version-file: source/frontend/pubspec.yaml
+          channel: stable
+          cache: true
+
+      - name: Install dependencies
+        working-directory: source/frontend
+        run: flutter pub get
+
+      - name: Generate code
+        working-directory: source/frontend
+        run: dart run build_runner build --delete-conflicting-outputs
+
+      - name: Format check
+        working-directory: source/frontend
+        run: dart format --output=none --set-exit-if-changed .
+
+      - name: Analyze
+        working-directory: source/frontend
+        run: flutter analyze --no-fatal-infos --no-fatal-warnings
+
+  test:
+    name: Flutter Test
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    needs: [analyze]
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2  # v2.23.0
+        with:
+          flutter-version-file: source/frontend/pubspec.yaml
+          channel: stable
+          cache: true
+
+      - name: Install dependencies
+        working-directory: source/frontend
+        run: flutter pub get
+
+      - name: Generate code
+        working-directory: source/frontend
+        run: dart run build_runner build --delete-conflicting-outputs
+
+      - name: Run tests
+        working-directory: source/frontend
+        run: flutter test --no-pub --reporter=compact --coverage --test-randomize-ordering-seed random
+
+      - name: Check coverage threshold
+        working-directory: source/frontend
+        run: |
+          sudo apt-get install -y lcov 2>/dev/null || true
+          COVERAGE=$(lcov --summary coverage/lcov.info 2>&1 | grep "lines" | grep -oP '\d+\.\d+(?=%)' || echo "0")
+          echo "Coverage: ${COVERAGE}%"
+          python3 -c "
+          cov = float('${COVERAGE}' or '0')
+          if cov < 60:
+              raise SystemExit(f'Coverage {cov:.1f}% is below minimum 60%')
+          print(f'Coverage OK: {cov:.1f}%')
+          "
+
+      - name: Upload coverage
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
+        if: always()
+        with:
+          name: coverage-${{ github.event.pull_request.number }}
+          path: source/frontend/coverage/lcov.info
+          retention-days: 7
+          if-no-files-found: warn
+
+      - name: Run integration tests (if exist)
+        working-directory: source/frontend
+        run: |
+          if [ -d "integration_test" ] && [ "$(ls -A integration_test)" ]; then
+            echo "integration_test/ found, skipping on CI (requires device)"
+          else
+            echo "No integration tests found, skipping."
+          fi
+
+  build-check:
+    name: Android Debug Build
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    needs: [analyze, test]
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2  # v2.23.0
+        with:
+          flutter-version-file: source/frontend/pubspec.yaml
+          channel: stable
+          cache: true
+
+      - name: Setup Java
+        uses: actions/setup-java@7a6d8a8234af8eb26422e24e3006232cccaa061b  # v4.6.0
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Restore Gradle Cache
+        uses: actions/cache/restore@d4323d4df104b026a6aa633fdb11d772146be0bf  # v4.2.2
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: gradle-${{ runner.os }}-${{ hashFiles('source/frontend/android/gradle/wrapper/gradle-wrapper.properties') }}
+          restore-keys: |
+            gradle-${{ runner.os }}-
+
+      - name: Install dependencies
+        working-directory: source/frontend
+        run: flutter pub get
+
+      - name: Generate code
+        working-directory: source/frontend
+        run: dart run build_runner build --delete-conflicting-outputs
+
+      - name: Build debug APK
+        working-directory: source/frontend
+        run: |
+          flutter build apk --debug \
+            --dart-define=APP_ENV=dev \
+            --dart-define=SUPABASE_URL=https://mock.supabase.co \
+            --dart-define=SUPABASE_ANON_KEY=mock_key \
+            --dart-define=REVENUECAT_GOOGLE_KEY=mock_android
+
+      - name: Save Gradle Cache
+        uses: actions/cache/save@d4323d4df104b026a6aa633fdb11d772146be0bf  # v4.2.2
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: gradle-${{ runner.os }}-${{ hashFiles('source/frontend/android/gradle/wrapper/gradle-wrapper.properties') }}
+
+  ios-build-check:
+    name: iOS No-Codesign Build
+    runs-on: macos-latest
+    timeout-minutes: 30
+    needs: [analyze, test]
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2  # v2.23.0
+        with:
+          flutter-version-file: source/frontend/pubspec.yaml
+          channel: stable
+          cache: true
+
+      - name: Install dependencies
+        working-directory: source/frontend
+        run: flutter pub get
+
+      - name: Generate code
+        working-directory: source/frontend
+        run: dart run build_runner build --delete-conflicting-outputs
+
+      - name: Build iOS (no-codesign)
+        working-directory: source/frontend
+        run: |
+          flutter build ios --no-codesign --debug \
+            --dart-define=APP_ENV=dev \
+            --dart-define=SUPABASE_URL=https://mock.supabase.co \
+            --dart-define=SUPABASE_ANON_KEY=mock_key \
+            --dart-define=REVENUECAT_APPLE_KEY=mock_ios
+
+  # Monorepo shared packages — analyze & test via Melos
+  packages-check:
+    name: Packages Analyze & Test
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    if: hashFiles('packages/*/pubspec.yaml') != ''
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
+
+      - uses: actions/setup-java@be666c2fcd27ec809703dec50e508c2fdc7f6654  # v5.2.0
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2  # v2.23.0
+        with:
+          channel: stable
+          cache: true
+
+      - name: Install Melos
+        run: dart pub global activate melos
+
+      - name: Bootstrap packages
+        run: melos bootstrap
+
+      - name: Analyze packages
+        run: melos run analyze
+
+      - name: Test packages
+        run: melos run test

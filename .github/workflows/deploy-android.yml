@@ -1,0 +1,170 @@
+name: Deploy Android
+
+# Triggered by a version tag on main: v1.0.0, v1.2.3, etc.
+# Or manually via workflow_dispatch for targeted environment deployments.
+on:
+  push:
+    tags:
+      - 'v[0-9]+.[0-9]+.[0-9]+'
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Target environment'
+        required: true
+        default: 'internal'
+        type: choice
+        options:
+          - internal
+          - alpha
+          - beta
+
+concurrency:
+  group: deploy-android-${{ github.ref }}
+  cancel-in-progress: false   # deploy'lar iptal edilmez, sıraya girer
+
+permissions:
+  contents: write   # release için
+
+jobs:
+  validate-tag:
+    name: Verify tag is on main
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
+        with:
+          fetch-depth: 0
+
+      - name: Check tag is on main
+        run: |
+          TAG=${{ github.ref_name }}
+          if ! git branch -r --contains "refs/tags/$TAG" | grep -q "origin/main"; then
+            echo "ERROR: Tag $TAG is not on main. Aborting."
+            exit 1
+          fi
+
+  release-android:
+    name: Android → Play Store
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    environment: production
+    needs: validate-tag
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
+
+      - name: Extract version
+        id: version
+        run: |
+          TAG=${{ github.ref_name }}
+          echo "version=${TAG#v}" >> $GITHUB_OUTPUT
+          echo "build_number=$(date -u +%Y%m%d%H%M)" >> $GITHUB_OUTPUT
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2  # v2.23.0
+        with:
+          flutter-version-file: source/frontend/pubspec.yaml
+          channel: stable
+          cache: true
+
+      - name: Setup Java
+        uses: actions/setup-java@be666c2fcd27ec809703dec50e508c2fdc7f6654  # v5.2.0
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Restore Gradle Cache
+        uses: actions/cache/restore@d4323d4df104b026a6aa633fdb11d772146be0bf  # v4.2.2
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: gradle-${{ runner.os }}-${{ hashFiles('source/frontend/android/gradle/wrapper/gradle-wrapper.properties') }}
+          restore-keys: |
+            gradle-${{ runner.os }}-
+
+      - name: Restore pub cache
+        uses: actions/cache/restore@d4323d4df104b026a6aa633fdb11d772146be0bf  # v4.2.2
+        with:
+          path: ~/.pub-cache
+          key: pub-${{ runner.os }}-${{ hashFiles('source/frontend/pubspec.lock') }}
+          restore-keys: |
+            pub-${{ runner.os }}-
+
+      - name: Setup Ruby
+        uses: ruby/setup-ruby@3ff19f5e2baf30647122352b96108b1fbe250c64  # v1.299.0
+        with:
+          ruby-version: '3.2'
+          bundler-cache: true
+          working-directory: source/frontend/android
+
+      - name: Install Flutter dependencies
+        working-directory: source/frontend
+        run: flutter pub get
+
+      - name: Generate code
+        working-directory: source/frontend
+        run: dart run build_runner build --delete-conflicting-outputs
+
+      - name: Write Firebase config
+        run: |
+          echo '${{ secrets.GOOGLE_SERVICES_JSON }}' \
+            > source/frontend/android/app/google-services.json
+
+      - name: Decode keystore
+        run: |
+          echo "${{ secrets.ANDROID_KEYSTORE_BASE64 }}" | base64 --decode \
+            > source/frontend/android/app/release.jks
+
+      - name: Write key.properties
+        run: |
+          echo "storePassword=${{ secrets.ANDROID_KEYSTORE_PASSWORD }}" > source/frontend/android/key.properties
+          echo "keyPassword=${{ secrets.ANDROID_KEY_PASSWORD }}" >> source/frontend/android/key.properties
+          echo "keyAlias=${{ secrets.ANDROID_KEY_ALIAS }}" >> source/frontend/android/key.properties
+          echo "storeFile=release.jks" >> source/frontend/android/key.properties
+
+      - name: Write Play Store service account key
+        run: |
+          mkdir -p source/frontend/android/fastlane/keys
+          echo '${{ secrets.PLAY_STORE_SERVICE_ACCOUNT_JSON }}' \
+            > source/frontend/android/fastlane/keys/play_store_key.json
+
+      - name: Save Gradle Cache
+        uses: actions/cache/save@d4323d4df104b026a6aa633fdb11d772146be0bf  # v4.2.2
+        if: always()
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: gradle-${{ runner.os }}-${{ hashFiles('source/frontend/android/gradle/wrapper/gradle-wrapper.properties') }}
+
+      - name: Save pub cache
+        uses: actions/cache/save@d4323d4df104b026a6aa633fdb11d772146be0bf  # v4.2.2
+        if: always()
+        with:
+          path: ~/.pub-cache
+          key: pub-${{ runner.os }}-${{ hashFiles('source/frontend/pubspec.lock') }}
+
+      - name: Fastlane beta
+        working-directory: source/frontend/android
+        env:
+          KEYSTORE_PATH:                app/release.jks
+          KEYSTORE_PASSWORD:            ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          KEY_ALIAS:                    ${{ secrets.ANDROID_KEY_ALIAS }}
+          KEY_PASSWORD:                 ${{ secrets.ANDROID_KEY_PASSWORD }}
+          APP_VERSION:                  ${{ steps.version.outputs.version }}
+          BUILD_NUMBER:                 ${{ steps.version.outputs.build_number }}
+          DART_DEFINE_APP_ENV:          prod
+          DART_DEFINE_SUPABASE_URL:     ${{ secrets.PROD_SUPABASE_URL }}
+          DART_DEFINE_SUPABASE_ANON_KEY: ${{ secrets.PROD_SUPABASE_ANON_KEY }}
+          DART_DEFINE_RC_ANDROID_KEY:   ${{ secrets.PROD_RC_KEY_ANDROID }}
+          DART_DEFINE_MIXPANEL_TOKEN:   ${{ secrets.MIXPANEL_TOKEN }}
+        run: bundle exec fastlane beta
+
+      - name: Upload debug symbols
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
+        if: success()
+        with:
+          name: debug-symbols-${{ github.ref_name }}
+          path: source/frontend/build/symbols/
+          retention-days: 90
+          if-no-files-found: warn
