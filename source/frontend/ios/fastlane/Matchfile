@@ -1,0 +1,11 @@
+# Matchfile — code signing certificate & provisioning profile management
+# Certificates are stored in a private GitHub repo (git storage).
+# MATCH_PASSWORD env var must be set to encrypt/decrypt the repo.
+
+git_url(ENV.fetch("MATCH_GIT_URL", "git@github.com:YOUR_ORG/kelimelik-certificates.git"))
+storage_mode("git")
+
+type("appstore")                  # Default type; override per lane if needed
+app_identifier(["com.kelimelik.app"])
+
+username(ENV.fetch("APPLE_ID", ""))  # Not needed when using API key auth

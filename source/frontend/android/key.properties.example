@@ -1,0 +1,21 @@
+# android/key.properties.example
+# ─────────────────────────────────────────────────────────────────────────────
+# Copy this file to android/key.properties and fill in real values.
+# NEVER commit key.properties — it is listed in .gitignore.
+#
+# How to generate a keystore:
+#   keytool -genkey -v \
+#     -keystore release.jks \
+#     -alias kelimelik \
+#     -keyalg RSA -keysize 2048 \
+#     -validity 10000
+#
+# How to encode keystore for GitHub Secrets:
+#   base64 -i release.jks | pbcopy   (macOS)
+#   base64 release.jks | clip        (Windows Git Bash)
+# ─────────────────────────────────────────────────────────────────────────────
+
+storeFile=release.jks
+storePassword=YOUR_KEYSTORE_PASSWORD
+keyAlias=kelimelik
+keyPassword=YOUR_KEY_PASSWORD

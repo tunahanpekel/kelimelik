@@ -1,0 +1,5 @@
+app_identifier("com.kelimelik.app")
+team_id(ENV["APPLE_TEAM_ID"])
+
+# App Store Connect API key (used by match + pilot)
+# ASC_KEY_ID and ASC_ISSUER_ID are injected via env in CI

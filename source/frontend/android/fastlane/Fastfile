@@ -1,0 +1,65 @@
+default_platform(:android)
+
+platform :android do
+  # ---------------------------------------------------------------------------
+  # release — Build signed AAB and upload to Play Store internal track
+  # Called by: deploy-android.yml  (bundle exec fastlane release)
+  # Required env vars (injected by GitHub Actions):
+  #   KEYSTORE_PATH, KEYSTORE_PASSWORD, KEY_ALIAS, KEY_PASSWORD
+  #   APP_VERSION, BUILD_NUMBER
+  #   DART_DEFINE_APP_ENV, DART_DEFINE_SUPABASE_URL, DART_DEFINE_SUPABASE_ANON_KEY
+  #   DART_DEFINE_ADMOB_ANDROID_APP_ID, DART_DEFINE_ADMOB_IOS_APP_ID
+  # ---------------------------------------------------------------------------
+  desc "Build release AAB and upload to Play Store internal track"
+  lane :release do
+    # ── 1. Version bump in pubspec.yaml ─────────────────────────────────────
+    app_version    = ENV.fetch("APP_VERSION")
+    build_number   = ENV.fetch("BUILD_NUMBER")
+    pubspec_path   = "../pubspec.yaml"
+
+    pubspec = File.read(pubspec_path)
+    pubspec.gsub!(/^version: .+$/, "version: #{app_version}+#{build_number}")
+    File.write(pubspec_path, pubspec)
+
+    # ── 2. Flutter build (release AAB) ──────────────────────────────────────
+    sh(
+      "flutter", "build", "appbundle", "--release",
+      "--dart-define=APP_ENV=#{ENV.fetch('DART_DEFINE_APP_ENV')}",
+      "--dart-define=SUPABASE_URL=#{ENV.fetch('DART_DEFINE_SUPABASE_URL')}",
+      "--dart-define=SUPABASE_ANON_KEY=#{ENV.fetch('DART_DEFINE_SUPABASE_ANON_KEY')}",
+      "--dart-define=ADMOB_ANDROID_APP_ID=#{ENV.fetch('DART_DEFINE_ADMOB_ANDROID_APP_ID')}",
+      "--dart-define=ADMOB_IOS_APP_ID=#{ENV.fetch('DART_DEFINE_ADMOB_IOS_APP_ID')}",
+      "--build-name=#{app_version}",
+      "--build-number=#{build_number}",
+      chdir: ".."
+    )
+
+    # ── 3. Sign the AAB ─────────────────────────────────────────────────────
+    # key.properties is written from env vars during signing below.
+    # (flutter build appbundle picks up android/key.properties automatically
+    #  when it is present — write it before the build or use gradle flags.)
+    # If you prefer the key.properties approach, write it here instead:
+    #   File.write("key.properties", <<~PROPS)
+    #     storeFile=#{ENV['KEYSTORE_PATH']}
+    #     storePassword=#{ENV['KEYSTORE_PASSWORD']}
+    #     keyAlias=#{ENV['KEY_ALIAS']}
+    #     keyPassword=#{ENV['KEY_PASSWORD']}
+    #   PROPS
+    # For now we rely on ANDROID_KEYSTORE_* env vars being picked up by
+    # build.gradle via System.getenv().
+
+    # ── 4. Upload to Play Store internal track ──────────────────────────────
+    upload_to_play_store(
+      track:             "internal",
+      aab:               "../build/app/outputs/bundle/release/app-release.aab",
+      skip_upload_apk:   true,
+      skip_upload_metadata: true,
+      skip_upload_changelogs: true,
+      skip_upload_images: true,
+      skip_upload_screenshots: true,
+      release_status:    "draft"
+    )
+
+    UI.success("Kelimelik #{app_version}+#{build_number} uploaded to Play Store internal track.")
+  end
+end

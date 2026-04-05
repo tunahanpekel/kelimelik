@@ -1,0 +1,70 @@
+default_platform(:ios)
+
+platform :ios do
+  # ---------------------------------------------------------------------------
+  # release — Build signed IPA and upload to App Store Connect (TestFlight)
+  # Called by: deploy-ios.yml  (bundle exec fastlane release)
+  # Required env vars (injected by GitHub Actions):
+  #   MATCH_PASSWORD
+  #   APP_VERSION, BUILD_NUMBER
+  #   DART_DEFINE_APP_ENV, DART_DEFINE_SUPABASE_URL, DART_DEFINE_SUPABASE_ANON_KEY
+  #   DART_DEFINE_ADMOB_ANDROID_APP_ID, DART_DEFINE_ADMOB_IOS_APP_ID
+  #   ASC_KEY_ID, ASC_ISSUER_ID
+  #   (ASC private key JSON written to fastlane/keys/asc_api_key.json by CI)
+  # ---------------------------------------------------------------------------
+  desc "Build release IPA and upload to TestFlight"
+  lane :release do
+    app_version  = ENV.fetch("APP_VERSION")
+    build_number = ENV.fetch("BUILD_NUMBER")
+
+    # ── 1. App Store Connect API key ────────────────────────────────────────
+    asc_key_json = JSON.parse(File.read("fastlane/keys/asc_api_key.json"))
+    api_key = app_store_connect_api_key(
+      key_id:      ENV.fetch("ASC_KEY_ID"),
+      issuer_id:   ENV.fetch("ASC_ISSUER_ID"),
+      key_content: asc_key_json["key"],
+      is_key_content_base64: false,
+      in_house:    false
+    )
+
+    # ── 2. Sync certificates via Match ──────────────────────────────────────
+    match(
+      type:        "appstore",
+      app_identifier: "com.kelimelik.app",
+      readonly:    true,
+      api_key:     api_key
+    )
+
+    # ── 3. Version bump in pubspec.yaml ─────────────────────────────────────
+    pubspec_path = "../../pubspec.yaml"
+    pubspec = File.read(pubspec_path)
+    pubspec.gsub!(/^version: .+$/, "version: #{app_version}+#{build_number}")
+    File.write(pubspec_path, pubspec)
+
+    # ── 4. Flutter build (release IPA) ──────────────────────────────────────
+    sh(
+      "flutter", "build", "ipa", "--release",
+      "--dart-define=APP_ENV=#{ENV.fetch('DART_DEFINE_APP_ENV')}",
+      "--dart-define=SUPABASE_URL=#{ENV.fetch('DART_DEFINE_SUPABASE_URL')}",
+      "--dart-define=SUPABASE_ANON_KEY=#{ENV.fetch('DART_DEFINE_SUPABASE_ANON_KEY')}",
+      "--dart-define=ADMOB_ANDROID_APP_ID=#{ENV.fetch('DART_DEFINE_ADMOB_ANDROID_APP_ID')}",
+      "--dart-define=ADMOB_IOS_APP_ID=#{ENV.fetch('DART_DEFINE_ADMOB_IOS_APP_ID')}",
+      "--build-name=#{app_version}",
+      "--build-number=#{build_number}",
+      "--export-options-plist=ios/ExportOptions.plist",
+      chdir: "../.."
+    )
+
+    # ── 5. Upload to TestFlight ──────────────────────────────────────────────
+    pilot(
+      api_key:             api_key,
+      ipa:                 "../../build/ios/ipa/kelimelik.ipa",
+      skip_waiting_for_build_processing: true,
+      skip_submission:     true,
+      distribute_external: false,
+      notify_external_testers: false
+    )
+
+    UI.success("Kelimelik #{app_version}+#{build_number} uploaded to TestFlight.")
+  end
+end
