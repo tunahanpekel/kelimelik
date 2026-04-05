@@ -22,6 +22,7 @@ import '../../features/leaderboard/presentation/leaderboard_screen.dart';
 import '../../features/settings/presentation/settings_screen.dart';
 import '../../shared/widgets/tdk_reveal_screen.dart';
 import '../../shared/widgets/result_screen.dart';
+import '../../shared/models/game_result.dart';
 
 part 'app_router.g.dart';
 
